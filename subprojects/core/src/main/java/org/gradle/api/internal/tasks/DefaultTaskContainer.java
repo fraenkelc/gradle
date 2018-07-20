@@ -569,7 +569,7 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
 
     @Override
     protected Task removeByName(final String name) {
-        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskContainer.removeByName(String)", "Prefer disabling the task instead, see Task.setEnabled(boolean)", GradleVersion.version("6.0"));
+        warnAboutRemoveMethodDeprecation("removeByName(String)");
         return DeprecationLogger.whileDisabled(new Factory<Task>() {
             @Override
             public Task create() {
@@ -580,7 +580,7 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
 
     @Override
     public boolean remove(final Object o) {
-        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskContainer.remove(Object)", "Prefer disabling the task instead, see Task.setEnabled(boolean)", GradleVersion.version("6.0"));
+        warnAboutRemoveMethodDeprecation("remove(Object)");
         return DeprecationLogger.whileDisabled(new Factory<Boolean>() {
             @Override
             public Boolean create() {
@@ -591,13 +591,17 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
 
     @Override
     public boolean removeAll(final Collection<?> c) {
-        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskContainer.removeAll(Collection)", "Prefer disabling the task instead, see Task.setEnabled(boolean)", GradleVersion.version("6.0"));
+        warnAboutRemoveMethodDeprecation("removeAll(Collection)");
         return DeprecationLogger.whileDisabled(new Factory<Boolean>() {
             @Override
             public Boolean create() {
                 return DefaultTaskContainer.super.removeAll(c);
             }
         });
+    }
+
+    private void warnAboutRemoveMethodDeprecation(String methodName) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskContainer." + methodName, "Prefer disabling the task instead, see Task.setEnabled(boolean)", GradleVersion.version("6.0"));
     }
 
     // Cannot be private due to reflective instantiation
