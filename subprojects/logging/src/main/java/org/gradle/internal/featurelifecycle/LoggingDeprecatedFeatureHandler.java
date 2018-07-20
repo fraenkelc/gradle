@@ -161,18 +161,26 @@ public class LoggingDeprecatedFeatureHandler implements FeatureHandler {
         return Boolean.parseBoolean(value);
     }
 
-    private static String initDeprecationMessage() {
+    private static String initDeprecationMessage(GradleVersion whenGradleVersion) {
+        if (GradleVersion.current().compareTo(whenGradleVersion) > 0) {
+            throw new IllegalArgumentException(String.format("Scheduled removal Gradle version has to be >=%s (given %s)", GradleVersion.current().getVersion(), whenGradleVersion.getVersion()));
+        }
+
         String messageBase = "is scheduled to be removed in";
-        String when = String.format("Gradle %s", GradleVersion.current().getNextMajor().getVersion());
+        String when = String.format("Gradle %s", whenGradleVersion.getVersion());
 
         return String.format("%s %s.", messageBase, when);
     }
 
     public static String getRemovalDetails() {
         if (deprecationMessage == null) {
-            deprecationMessage = initDeprecationMessage();
+            deprecationMessage = initDeprecationMessage(GradleVersion.current().getNextMajor());
         }
         return deprecationMessage;
+    }
+
+    public static String getRemovalDetails(GradleVersion whenGradleVersion) {
+        return initDeprecationMessage(whenGradleVersion);
     }
 
     private enum DoNothingReporter implements UsageLocationReporter {

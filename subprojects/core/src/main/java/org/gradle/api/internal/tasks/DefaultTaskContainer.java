@@ -37,6 +37,7 @@ import org.gradle.api.tasks.TaskCollection;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.initialization.ProjectAccessListener;
 import org.gradle.internal.Cast;
+import org.gradle.internal.Factory;
 import org.gradle.internal.ImmutableActionSet;
 import org.gradle.internal.Transformers;
 import org.gradle.internal.metaobject.DynamicObject;
@@ -54,8 +55,10 @@ import org.gradle.model.internal.type.ModelType;
 import org.gradle.util.ConfigureUtil;
 import org.gradle.util.DeprecationLogger;
 import org.gradle.util.GUtil;
+import org.gradle.util.GradleVersion;
 
 import javax.annotation.Nullable;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -562,6 +565,39 @@ public class DefaultTaskContainer extends DefaultTaskCollection<Task> implements
     public <S extends Task> TaskCollection<S> withType(Class<S> type) {
         Instantiator instantiator = getInstantiator();
         return Cast.uncheckedCast(instantiator.newInstance(RealizableTaskCollection.class, type, super.withType(type), modelNode, instantiator));
+    }
+
+    @Override
+    protected Task removeByName(final String name) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskContainer.removeByName(String)", "Prefer disabling the task instead, see Task.setEnabled(boolean)", GradleVersion.version("6.0"));
+        return DeprecationLogger.whileDisabled(new Factory<Task>() {
+            @Override
+            public Task create() {
+                return DefaultTaskContainer.super.removeByName(name);
+            }
+        });
+    }
+
+    @Override
+    public boolean remove(final Object o) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskContainer.remove(Object)", "Prefer disabling the task instead, see Task.setEnabled(boolean)", GradleVersion.version("6.0"));
+        return DeprecationLogger.whileDisabled(new Factory<Boolean>() {
+            @Override
+            public Boolean create() {
+                return DefaultTaskContainer.super.remove(o);
+            }
+        });
+    }
+
+    @Override
+    public boolean removeAll(final Collection<?> c) {
+        DeprecationLogger.nagUserOfDiscontinuedMethod("TaskContainer.removeAll(Collection)", "Prefer disabling the task instead, see Task.setEnabled(boolean)", GradleVersion.version("6.0"));
+        return DeprecationLogger.whileDisabled(new Factory<Boolean>() {
+            @Override
+            public Boolean create() {
+                return DefaultTaskContainer.super.removeAll(c);
+            }
+        });
     }
 
     // Cannot be private due to reflective instantiation

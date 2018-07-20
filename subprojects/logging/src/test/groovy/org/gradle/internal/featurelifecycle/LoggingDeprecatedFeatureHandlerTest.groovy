@@ -28,6 +28,7 @@ import org.gradle.internal.operations.OperationProgressEvent
 import org.gradle.internal.operations.TestBuildOperationExecutor
 import org.gradle.internal.time.Clock
 import org.gradle.testing.internal.util.Specification
+import org.gradle.util.GradleVersion
 import org.gradle.util.SetSystemProperties
 import org.gradle.util.TextUtil
 import org.junit.Rule
@@ -395,6 +396,27 @@ class LoggingDeprecatedFeatureHandlerTest extends Specification {
 
         then:
         1 * buildOperationListener.progress(_, _) >> { progressFired(it[1], 'feature2') }
+    }
+
+    def 'can get removal details for next major Gradle version'() {
+        expect:
+        LoggingDeprecatedFeatureHandler.getRemovalDetails() == "is scheduled to be removed in Gradle ${GradleVersion.current().nextMajor.version}."
+    }
+
+    def 'can get removal details for custom next Gradle version'() {
+        GradleVersion when = GradleVersion.current().getNextMajor().getNextMajor()
+
+        expect:
+        LoggingDeprecatedFeatureHandler.getRemovalDetails(when) == "is scheduled to be removed in Gradle ${when.version}."
+    }
+
+    def 'throws exception when generating removal details for Gradle version lower than current'() {
+        when:
+        LoggingDeprecatedFeatureHandler.getRemovalDetails(GradleVersion.version("2.0"))
+
+        then:
+        def ex = thrown(IllegalArgumentException)
+        ex.message == "Scheduled removal Gradle version has to be >=${GradleVersion.current().version} (given 2.0)"
     }
 
     private void progressFired(OperationProgressEvent progressEvent, String summary) {

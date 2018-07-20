@@ -156,6 +156,12 @@ public class SingleMessageLogger {
         }
     }
 
+    public static void nagUserOfDiscontinuedMethod(String methodName, String advice, GradleVersion when) {
+        if (isEnabled()) {
+            nagUserWith(String.format("The %s method has been deprecated.", methodName), thisWillBeRemovedInMessage(when), advice, "");
+        }
+    }
+
     public static void nagUserOfDiscontinuedProperty(String propertyName, String advice) {
         if (isEnabled()) {
             nagUserWith(String.format("The %s property has been deprecated.", propertyName),
@@ -318,6 +324,10 @@ public class SingleMessageLogger {
 
     private static String thisWillBeRemovedMessage() {
         return String.format("This %s", getRemovalDetails());
+    }
+
+    private static String thisWillBeRemovedInMessage(GradleVersion whenGradleVersion) {
+        return String.format("This %s", getRemovalDetails(whenGradleVersion));
     }
 
     public static void incubatingFeatureUsed(String incubatingFeature) {
