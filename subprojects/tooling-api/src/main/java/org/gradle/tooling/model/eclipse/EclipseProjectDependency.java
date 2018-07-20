@@ -15,7 +15,11 @@
  */
 package org.gradle.tooling.model.eclipse;
 
+import org.gradle.api.Incubating;
 import org.gradle.tooling.model.ProjectDependency;
+import org.gradle.tooling.model.UnsupportedMethodException;
+
+import java.util.List;
 
 /**
  * Represents a dependency on another Eclipse project.
@@ -41,4 +45,7 @@ public interface EclipseProjectDependency extends ProjectDependency, EclipseClas
      * @since 2.5
      */
     boolean isExported();
+
+    @Incubating
+    List<EclipseProjectSubstitute> getSubstitutes() throws UnsupportedMethodException;
 }

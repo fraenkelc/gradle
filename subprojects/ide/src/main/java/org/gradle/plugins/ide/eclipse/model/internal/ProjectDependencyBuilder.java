@@ -16,10 +16,15 @@
 
 package org.gradle.plugins.ide.eclipse.model.internal;
 
+import org.gradle.api.artifacts.component.ComponentArtifactIdentifier;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
+import org.gradle.internal.component.model.ComponentArtifactMetadata;
 import org.gradle.plugins.ide.eclipse.internal.EclipseProjectMetadata;
+import org.gradle.plugins.ide.eclipse.model.AbstractClasspathEntry;
 import org.gradle.plugins.ide.eclipse.model.ProjectDependency;
 import org.gradle.plugins.ide.internal.IdeArtifactRegistry;
+
+import java.io.File;
 
 public class ProjectDependencyBuilder {
     private final IdeArtifactRegistry ideArtifactRegistry;
@@ -45,5 +50,14 @@ public class ProjectDependencyBuilder {
         final ProjectDependency out = new ProjectDependency(path);
         out.setExported(false);
         return out;
+    }
+
+    public ProjectDependency build(ProjectComponentIdentifier componentIdentifier, File file, ComponentArtifactIdentifier id) {
+        ProjectDependency dependency = buildProjectDependency(determineTargetProjectPath(componentIdentifier));
+        if (id instanceof ComponentArtifactMetadata) {
+            dependency.setBuildTaskName(((ComponentArtifactMetadata)id).getBuildDependencies().getDependencies(null).iterator().next().getName());
+            dependency.setPublication(file);
+        }
+        return dependency;
     }
 }

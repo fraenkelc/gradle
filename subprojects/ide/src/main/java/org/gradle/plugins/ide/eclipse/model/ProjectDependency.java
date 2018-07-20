@@ -19,10 +19,15 @@ package org.gradle.plugins.ide.eclipse.model;
 import com.google.common.base.Preconditions;
 import groovy.util.Node;
 
+import java.io.File;
+
 /**
  * A classpath entry representing a project dependency.
  */
 public class ProjectDependency extends AbstractClasspathEntry {
+
+    private String buildTaskName;
+    private File publication;
 
     public ProjectDependency(Node node) {
         super(node);
@@ -50,5 +55,21 @@ public class ProjectDependency extends AbstractClasspathEntry {
     @Override
     public String toString() {
         return "ProjectDependency" + super.toString();
+    }
+
+    public void setBuildTaskName(String name) {
+        buildTaskName = name;
+    }
+
+    public void setPublication(File file) {
+        publication = file;
+    }
+
+    public File getPublication() {
+        return publication;
+    }
+
+    public String getBuildTaskName() {
+        return buildTaskName;
     }
 }

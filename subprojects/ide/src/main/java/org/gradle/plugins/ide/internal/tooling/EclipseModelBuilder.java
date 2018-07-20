@@ -54,9 +54,11 @@ import org.gradle.plugins.ide.internal.tooling.eclipse.DefaultEclipseOutputLocat
 import org.gradle.plugins.ide.internal.tooling.eclipse.DefaultEclipseProject;
 import org.gradle.plugins.ide.internal.tooling.eclipse.DefaultEclipseProjectDependency;
 import org.gradle.plugins.ide.internal.tooling.eclipse.DefaultEclipseProjectNature;
+import org.gradle.plugins.ide.internal.tooling.eclipse.DefaultEclipseProjectSubstitute;
 import org.gradle.plugins.ide.internal.tooling.eclipse.DefaultEclipseSourceDirectory;
 import org.gradle.plugins.ide.internal.tooling.eclipse.DefaultEclipseTask;
 import org.gradle.plugins.ide.internal.tooling.java.DefaultInstalledJdk;
+import org.gradle.plugins.ide.internal.tooling.model.LaunchableGradleProjectTask;
 import org.gradle.tooling.internal.gradle.DefaultGradleProject;
 import org.gradle.tooling.provider.model.ToolingModelBuilder;
 import org.gradle.util.CollectionUtils;
@@ -64,10 +66,13 @@ import org.gradle.util.GUtil;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import static org.gradle.plugins.ide.internal.tooling.ToolingModelBuilderSupport.buildFromTask;
 
 public class EclipseModelBuilder implements ToolingModelBuilder {
     private final GradleProjectBuilder gradleProjectBuilder;
@@ -182,6 +187,10 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
                 DefaultEclipseProjectDependency dependency = new DefaultEclipseProjectDependency(path, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency));
                 // Find the EclipseProject model, if it's in the same build. May be null for a composite.
                 dependency.setTargetProject(findEclipseProjectByName(path));
+                DefaultGradleProject<?> owner = dependency.getTargetProject().getGradleProject();
+                Task task = currentProject.getRootProject().findProject(dependency.getTargetProject().getPath()).getTasksByName(projectDependency.getBuildTaskName(), false).iterator().next();
+                LaunchableGradleProjectTask buildTask = (LaunchableGradleProjectTask) buildFromTask(new LaunchableGradleProjectTask(), task).setProject(owner).setProjectIdentifier(owner.getProjectIdentifier());
+                dependency.setSubstitutes(Collections.singletonList(new DefaultEclipseProjectSubstitute(projectDependency.getPublication(), null, null, null, false, createAttributes(projectDependency), createAccessRules(projectDependency), buildTask)));
                 projectDependencies.add(dependency);
             } else if (entry instanceof SourceFolder) {
                 final SourceFolder sourceFolder = (SourceFolder) entry;
