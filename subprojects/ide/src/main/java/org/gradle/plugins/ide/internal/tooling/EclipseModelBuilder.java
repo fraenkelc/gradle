@@ -22,7 +22,11 @@ import org.apache.commons.lang.StringUtils;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.initialization.IncludedBuild;
+import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.specs.Spec;
+import org.gradle.execution.taskpath.ProjectFinderByTaskPath;
+import org.gradle.execution.taskpath.ResolvedTaskPath;
+import org.gradle.execution.taskpath.TaskPathResolver;
 import org.gradle.internal.build.IncludedBuildState;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.internal.xml.XmlTransformer;
@@ -186,11 +190,21 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
                 final String path = StringUtils.removeStart(projectDependency.getPath(), "/");
                 DefaultEclipseProjectDependency dependency = new DefaultEclipseProjectDependency(path, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency));
                 // Find the EclipseProject model, if it's in the same build. May be null for a composite.
-                dependency.setTargetProject(findEclipseProjectByName(path));
-                DefaultGradleProject<?> owner = dependency.getTargetProject().getGradleProject();
-                Task task = currentProject.getRootProject().findProject(dependency.getTargetProject().getPath()).getTasksByName(projectDependency.getBuildTaskName(), false).iterator().next();
-                LaunchableGradleProjectTask buildTask = (LaunchableGradleProjectTask) buildFromTask(new LaunchableGradleProjectTask(), task).setProject(owner).setProjectIdentifier(owner.getProjectIdentifier());
-                dependency.setSubstitutes(Collections.singletonList(new DefaultEclipseProjectSubstitute(projectDependency.getPublication(), null, null, null, false, createAttributes(projectDependency), createAccessRules(projectDependency), buildTask)));
+                DefaultEclipseProject targetProject = findEclipseProjectByName(path);
+                dependency.setTargetProject(targetProject);
+                try {
+                    TaskPathResolver taskPathResolver = new TaskPathResolver();
+                    ResolvedTaskPath taskPath = taskPathResolver.resolvePath(projectDependency.getBuildTaskName(), (ProjectInternal) project.getRootProject());
+                    Set<Task> buildTasks = taskPath.getProject().getTasksByName(taskPath.getTaskName(), false);
+                    if (!buildTasks.isEmpty()) {
+                        Task task = buildTasks.iterator().next();
+                        DefaultGradleProject<?> owner = rootGradleProject.findByPath(taskPath.getProject().getPath());
+                        LaunchableGradleProjectTask buildTask = (LaunchableGradleProjectTask) buildFromTask(new LaunchableGradleProjectTask(), task).setProject(owner).setProjectIdentifier(owner.getProjectIdentifier());
+                        dependency.setSubstitute(new DefaultEclipseProjectSubstitute(projectDependency.getPublication(), null, null, null, false, createAttributes(projectDependency), createAccessRules(projectDependency), buildTask));
+                    }
+                } catch (ProjectFinderByTaskPath.ProjectLookupException e) {
+                    e.printStackTrace();
+                }
                 projectDependencies.add(dependency);
             } else if (entry instanceof SourceFolder) {
                 final SourceFolder sourceFolder = (SourceFolder) entry;
@@ -203,7 +217,7 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
                 final Container container = (Container) entry;
                 classpathContainers.add(new DefaultEclipseClasspathContainer(container.getPath(), container.isExported(), createAttributes(container), createAccessRules(container)));
             } else if (entry instanceof Output) {
-                outputLocation = new DefaultEclipseOutputLocation(((Output)entry).getPath());
+                outputLocation = new DefaultEclipseOutputLocation(((Output) entry).getPath());
             }
         }
 
@@ -305,7 +319,7 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
 
     private static List<DefaultAccessRule> createAccessRules(AbstractClasspathEntry classpathEntry) {
         List<DefaultAccessRule> result = Lists.newArrayList();
-        for(AccessRule accessRule : classpathEntry.getAccessRules()) {
+        for (AccessRule accessRule : classpathEntry.getAccessRules()) {
             result.add(createAccessRule(accessRule));
         }
         return result;
@@ -318,7 +332,7 @@ public class EclipseModelBuilder implements ToolingModelBuilder {
             kindCode = 0;
         } else if (kind.equals("nonaccessible") || kind.equals("1")) {
             kindCode = 1;
-        }  else if (kind.equals("discouraged") || kind.equals("2")) {
+        } else if (kind.equals("discouraged") || kind.equals("2")) {
             kindCode = 2;
         } else {
             kindCode = 0;

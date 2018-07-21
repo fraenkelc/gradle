@@ -16,8 +16,10 @@
 
 package org.gradle.plugins.ide.eclipse.model.internal;
 
+import org.gradle.api.Task;
 import org.gradle.api.artifacts.component.ComponentArtifactIdentifier;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
+import org.gradle.internal.build.IncludedBuildState;
 import org.gradle.internal.component.model.ComponentArtifactMetadata;
 import org.gradle.plugins.ide.eclipse.internal.EclipseProjectMetadata;
 import org.gradle.plugins.ide.eclipse.model.AbstractClasspathEntry;
@@ -25,8 +27,9 @@ import org.gradle.plugins.ide.eclipse.model.ProjectDependency;
 import org.gradle.plugins.ide.internal.IdeArtifactRegistry;
 
 import java.io.File;
+import java.util.Set;
 
-public class ProjectDependencyBuilder {
+public class  ProjectDependencyBuilder {
     private final IdeArtifactRegistry ideArtifactRegistry;
 
     public ProjectDependencyBuilder(IdeArtifactRegistry ideArtifactRegistry) {
@@ -55,7 +58,11 @@ public class ProjectDependencyBuilder {
     public ProjectDependency build(ProjectComponentIdentifier componentIdentifier, File file, ComponentArtifactIdentifier id) {
         ProjectDependency dependency = buildProjectDependency(determineTargetProjectPath(componentIdentifier));
         if (id instanceof ComponentArtifactMetadata) {
-            dependency.setBuildTaskName(((ComponentArtifactMetadata)id).getBuildDependencies().getDependencies(null).iterator().next().getName());
+            Set<? extends Task> tasks = ((ComponentArtifactMetadata) id).getBuildDependencies().getDependencies(null);
+            if (!tasks.isEmpty()) {
+                Task buildTask = tasks.iterator().next();
+                dependency.setBuildTaskName(buildTask.getPath());
+            }
             dependency.setPublication(file);
         }
         return dependency;

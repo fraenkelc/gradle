@@ -23,7 +23,7 @@ public class DefaultEclipseProjectDependency extends DefaultEclipseDependency im
 
     private DefaultEclipseProject targetProject;
 
-    private List<DefaultEclipseProjectSubstitute> substitutes;
+    private DefaultEclipseProjectSubstitute substitute;
 
     public DefaultEclipseProjectDependency(String path, boolean exported, List<DefaultClasspathAttribute> attributes, List<DefaultAccessRule> accessRules) {
         super(exported, attributes, accessRules);
@@ -39,12 +39,12 @@ public class DefaultEclipseProjectDependency extends DefaultEclipseDependency im
         this.targetProject = targetProject;
     }
 
-    public List<DefaultEclipseProjectSubstitute> getSubstitute() {
-        return substitutes;
+    public DefaultEclipseProjectSubstitute getSubstitute() {
+        return substitute;
     }
 
-    public void setSubstitutes(List<DefaultEclipseProjectSubstitute> substitutes) {
-        this.substitutes = substitutes;
+    public void setSubstitute(DefaultEclipseProjectSubstitute substitute) {
+        this.substitute = substitute;
     }
 
     public String getPath() {

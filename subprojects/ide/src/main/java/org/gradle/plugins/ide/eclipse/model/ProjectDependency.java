@@ -54,7 +54,14 @@ public class ProjectDependency extends AbstractClasspathEntry {
 
     @Override
     public String toString() {
-        return "ProjectDependency" + super.toString();
+        return "ProjectDependency{" +
+            "path='" + path + '\'' +
+            ", nativeLibraryLocation='" + getNativeLibraryLocation() +
+            ", exported=" + exported +
+            ", accessRules=" + accessRules +
+            ", buildTaskName='" + buildTaskName + '\'' +
+            ", publication=" + publication +
+            '}';
     }
 
     public void setBuildTaskName(String name) {
@@ -71,5 +78,26 @@ public class ProjectDependency extends AbstractClasspathEntry {
 
     public String getBuildTaskName() {
         return buildTaskName;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        if (!super.equals(o)) return false;
+
+        ProjectDependency that = (ProjectDependency) o;
+
+        if (buildTaskName != null ? !buildTaskName.equals(that.buildTaskName) : that.buildTaskName != null)
+            return false;
+        return publication != null ? publication.equals(that.publication) : that.publication == null;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + (buildTaskName != null ? buildTaskName.hashCode() : 0);
+        result = 31 * result + (publication != null ? publication.hashCode() : 0);
+        return result;
     }
 }

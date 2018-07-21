@@ -18,7 +18,16 @@ package org.gradle.tooling.model.eclipse;
 
 import org.gradle.tooling.model.GradleTask;
 
+/**
+ * Represents a jar substitute for an eclipse project
+ */
 public interface EclipseProjectSubstitute extends EclipseExternalDependency {
+    /**
+     * Returns the task that builds this artifact
+     *
+     * @return The  task that builds this artifact.
+     * @since 4.10
+     */
     GradleTask getBuildTask();
 
 }

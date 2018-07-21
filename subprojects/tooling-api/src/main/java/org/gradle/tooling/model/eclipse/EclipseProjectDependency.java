@@ -46,6 +46,12 @@ public interface EclipseProjectDependency extends ProjectDependency, EclipseClas
      */
     boolean isExported();
 
+    /**
+     * Returns the substitute for this project.
+
+     * @since 4.10
+     * @throws UnsupportedMethodException
+     */
     @Incubating
-    List<EclipseProjectSubstitute> getSubstitutes() throws UnsupportedMethodException;
+    EclipseProjectSubstitute getSubstitute() throws UnsupportedMethodException;
 }
