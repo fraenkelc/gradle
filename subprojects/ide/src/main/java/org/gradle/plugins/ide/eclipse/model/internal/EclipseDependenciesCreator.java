@@ -100,7 +100,7 @@ public class EclipseDependenciesCreator {
         public void visitProjectDependency(ResolvedArtifactResult artifact) {
             ProjectComponentIdentifier componentIdentifier = (ProjectComponentIdentifier) artifact.getId().getComponentIdentifier();
             if (!componentIdentifier.equals(currentProjectId)) {
-                projects.add(projectDependencyBuilder.build(componentIdentifier));
+                projects.add(projectDependencyBuilder.build(componentIdentifier, artifact.getFile()));
             }
         }
 

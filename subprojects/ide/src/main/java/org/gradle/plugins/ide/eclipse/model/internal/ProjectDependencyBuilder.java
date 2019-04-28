@@ -21,6 +21,8 @@ import org.gradle.plugins.ide.eclipse.internal.EclipseProjectMetadata;
 import org.gradle.plugins.ide.eclipse.model.ProjectDependency;
 import org.gradle.plugins.ide.internal.IdeArtifactRegistry;
 
+import java.io.File;
+
 public class ProjectDependencyBuilder {
     private final IdeArtifactRegistry ideArtifactRegistry;
 
@@ -45,5 +47,11 @@ public class ProjectDependencyBuilder {
         final ProjectDependency out = new ProjectDependency(path);
         out.setExported(false);
         return out;
+    }
+
+    public ProjectDependency build(ProjectComponentIdentifier componentIdentifier, File file) {
+        ProjectDependency dependency = buildProjectDependency(determineTargetProjectPath(componentIdentifier));
+        dependency.setPublication(file);
+        return dependency;
     }
 }

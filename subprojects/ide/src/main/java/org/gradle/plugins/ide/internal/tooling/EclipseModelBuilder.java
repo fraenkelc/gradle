@@ -72,6 +72,8 @@ import org.gradle.util.GUtil;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -89,6 +91,7 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
     private DefaultGradleProject rootGradleProject;
     private Project currentProject;
     private EclipseRuntime eclipseRuntime;
+    private Map<String, EclipseWorkspaceProject> eclipseWorkpaceProjects = new HashMap<>();
 
     @VisibleForTesting
     public EclipseModelBuilder(GradleProjectBuilder gradleProjectBuilder, ServiceRegistry services, EclipseModelAwareUniqueProjectNameProvider uniqueProjectNameProvider) {
@@ -114,6 +117,12 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
     @Override
     public Object buildAll(String modelName, EclipseRuntime eclipseRuntime, Project project) {
         this.eclipseRuntime = eclipseRuntime;
+        if (eclipseRuntime.getWorkspace() != null && eclipseRuntime.getWorkspace().getProjects() != null) {
+            for (EclipseWorkspaceProject workspaceProject : eclipseRuntime.getWorkspace().getProjects()) {
+                eclipseWorkpaceProjects.put(workspaceProject.getName(), workspaceProject);
+            }
+        }
+
         return buildAll(modelName, project);
     }
 
@@ -202,6 +211,7 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
         final List<DefaultEclipseProjectDependency> projectDependencies = new LinkedList<DefaultEclipseProjectDependency>();
         final List<DefaultEclipseSourceDirectory> sourceDirectories = new LinkedList<DefaultEclipseSourceDirectory>();
         final List<DefaultEclipseClasspathContainer> classpathContainers = new LinkedList<DefaultEclipseClasspathContainer>();
+        final Set<String> visitedProjectPaths = new HashSet<>();
         DefaultEclipseOutputLocation outputLocation = null;
 
         for (ClasspathEntry entry : classpathEntries) {
@@ -218,8 +228,15 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
                 final ProjectDependency projectDependency = (ProjectDependency) entry;
                 // By removing the leading "/", this is no longer a "path" as defined by Eclipse
                 final String path = StringUtils.removeStart(projectDependency.getPath(), "/");
-                DefaultEclipseProjectDependency dependency = new DefaultEclipseProjectDependency(path, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency));
-                projectDependencies.add(dependency);
+                EclipseWorkspaceProject eclipseWorkspaceProject = eclipseWorkpaceProjects.get(path);
+                if (eclipseWorkspaceProject != null && !eclipseWorkspaceProject.isOpen()) {
+                    externalDependencies.add(new DefaultEclipseExternalDependency(projectDependency.getPublication(), null, null, null, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency)));
+                } else if (!visitedProjectPaths.contains(path)) {
+                    // we only want one copy of a non-replaced project dependency on the classpath.
+                    DefaultEclipseProjectDependency dependency = new DefaultEclipseProjectDependency(path, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency));
+                    projectDependencies.add(dependency);
+                    visitedProjectPaths.add(path);
+                }
             } else if (entry instanceof SourceFolder) {
                 final SourceFolder sourceFolder = (SourceFolder) entry;
                 String path = sourceFolder.getPath();
@@ -231,7 +248,7 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
                 final Container container = (Container) entry;
                 classpathContainers.add(new DefaultEclipseClasspathContainer(container.getPath(), container.isExported(), createAttributes(container), createAccessRules(container)));
             } else if (entry instanceof Output) {
-                outputLocation = new DefaultEclipseOutputLocation(((Output)entry).getPath());
+                outputLocation = new DefaultEclipseOutputLocation(((Output) entry).getPath());
             }
         }
 
@@ -325,7 +342,7 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
 
     private static List<DefaultAccessRule> createAccessRules(AbstractClasspathEntry classpathEntry) {
         List<DefaultAccessRule> result = Lists.newArrayList();
-        for(AccessRule accessRule : classpathEntry.getAccessRules()) {
+        for (AccessRule accessRule : classpathEntry.getAccessRules()) {
             result.add(createAccessRule(accessRule));
         }
         return result;
