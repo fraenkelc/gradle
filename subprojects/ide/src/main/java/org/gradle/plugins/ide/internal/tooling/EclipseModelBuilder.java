@@ -20,9 +20,17 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang.StringUtils;
+import org.gradle.api.Action;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.api.artifacts.ArtifactView;
+import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.component.ComponentIdentifier;
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
+import org.gradle.api.attributes.AttributeContainer;
+import org.gradle.api.attributes.Usage;
 import org.gradle.api.initialization.IncludedBuild;
+import org.gradle.api.internal.model.NamedObjectInstantiator;
 import org.gradle.api.internal.project.ProjectStateRegistry;
 import org.gradle.api.invocation.Gradle;
 import org.gradle.api.specs.Spec;
@@ -72,9 +80,11 @@ import org.gradle.util.GUtil;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -89,6 +99,7 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
     private DefaultGradleProject rootGradleProject;
     private Project currentProject;
     private EclipseRuntime eclipseRuntime;
+    private Set<String> closedProjectNames = Collections.emptySet();
 
     @VisibleForTesting
     public EclipseModelBuilder(GradleProjectBuilder gradleProjectBuilder, ServiceRegistry services, EclipseModelAwareUniqueProjectNameProvider uniqueProjectNameProvider) {
@@ -114,6 +125,7 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
     @Override
     public Object buildAll(String modelName, EclipseRuntime eclipseRuntime, Project project) {
         this.eclipseRuntime = eclipseRuntime;
+        closedProjectNames = eclipseRuntime.getWorkspace().getProjects().stream().filter(p -> !p.isOpen()).map(p -> p.getName()).collect(Collectors.toSet());
         return buildAll(modelName, project);
     }
 
@@ -218,8 +230,13 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
                 final ProjectDependency projectDependency = (ProjectDependency) entry;
                 // By removing the leading "/", this is no longer a "path" as defined by Eclipse
                 final String path = StringUtils.removeStart(projectDependency.getPath(), "/");
-                DefaultEclipseProjectDependency dependency = new DefaultEclipseProjectDependency(path, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency));
-                projectDependencies.add(dependency);
+                if (closedProjectNames.contains(path)) {
+                    List<DefaultEclipseExternalDependency> substitutes = createSubstituteDependencies(project, projectDependency);
+                    externalDependencies.addAll(substitutes);
+                } else {
+                    DefaultEclipseProjectDependency dependency = new DefaultEclipseProjectDependency(path, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency));
+                    projectDependencies.add(dependency);
+                }
             } else if (entry instanceof SourceFolder) {
                 final SourceFolder sourceFolder = (SourceFolder) entry;
                 String path = sourceFolder.getPath();
@@ -231,7 +248,7 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
                 final Container container = (Container) entry;
                 classpathContainers.add(new DefaultEclipseClasspathContainer(container.getPath(), container.isExported(), createAttributes(container), createAccessRules(container)));
             } else if (entry instanceof Output) {
-                outputLocation = new DefaultEclipseOutputLocation(((Output)entry).getPath());
+                outputLocation = new DefaultEclipseOutputLocation(((Output) entry).getPath());
             }
         }
 
@@ -260,6 +277,41 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
         for (Project childProject : project.getChildProjects().values()) {
             populate(childProject);
         }
+    }
+
+    private List<DefaultEclipseExternalDependency> createSubstituteDependencies(Project project, ProjectDependency projectDependency) {
+        List<DefaultEclipseExternalDependency> dependencies = new ArrayList<>();
+        Optional<String> otherProjectName = eclipseProjects.stream()
+            .filter(ep -> ep.getName().equals(StringUtils.removeStart(projectDependency.getPath(), "/")))
+            .map(ep -> ep.getGradleProject().getPath()).findFirst();
+        if (otherProjectName.isPresent()) {
+            // we will get duplicate dependencies from the different configurations. We use this map to deduplicate them by their respective file.
+            Map<File, DefaultEclipseExternalDependency> dependencyMap = new HashMap<>();
+            for (Configuration configuration : project.getExtensions().getByType(EclipseModel.class).getClasspath().getPlusConfigurations()) {
+                ArtifactView artifactView = configuration.getIncoming().artifactView(vc -> {
+                    vc.componentFilter(new Spec<ComponentIdentifier>() {
+                        @Override
+                        public boolean isSatisfiedBy(ComponentIdentifier element) {
+                            return element instanceof ProjectComponentIdentifier && ((ProjectComponentIdentifier) element).getProjectPath().equals(otherProjectName.get());
+                        }
+                    });
+                    vc.attributes(new Action<AttributeContainer>() {
+                        @Override
+                        public void execute(AttributeContainer attrs) {
+                            // filter out non jar variants
+                            attrs.attribute(Usage.USAGE_ATTRIBUTE, NamedObjectInstantiator.INSTANCE.named(Usage.class, Usage.JAVA_RUNTIME_JARS));
+                        }
+                    });
+                });
+
+                for (File file : artifactView.getFiles().getFiles()) {
+                    // TODO: sourceset attributes are missing, see org.gradle.plugins.ide.eclipse.model.internal.EclipseDependenciesCreator.EclipseDependenciesVisitor.createLibraryEntry
+                    dependencyMap.put(file, new DefaultEclipseExternalDependency(file, null, null, null, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency)));
+                }
+            }
+            dependencies.addAll(dependencyMap.values());
+        }
+        return dependencies;
     }
 
     private static void populateEclipseProjectTasks(DefaultEclipseProject eclipseProject, Iterable<Task> projectTasks) {
@@ -325,7 +377,7 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
 
     private static List<DefaultAccessRule> createAccessRules(AbstractClasspathEntry classpathEntry) {
         List<DefaultAccessRule> result = Lists.newArrayList();
-        for(AccessRule accessRule : classpathEntry.getAccessRules()) {
+        for (AccessRule accessRule : classpathEntry.getAccessRules()) {
             result.add(createAccessRule(accessRule));
         }
         return result;
