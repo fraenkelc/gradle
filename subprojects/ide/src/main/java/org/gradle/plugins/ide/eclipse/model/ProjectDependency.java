@@ -18,6 +18,7 @@ package org.gradle.plugins.ide.eclipse.model;
 
 import com.google.common.base.Preconditions;
 import groovy.util.Node;
+import org.gradle.api.tasks.TaskDependency;
 
 import java.io.File;
 import java.util.Objects;
@@ -28,6 +29,7 @@ import java.util.Objects;
 public class ProjectDependency extends AbstractClasspathEntry {
 
     private File publication;
+    private TaskDependency buildDependencies;
 
     public ProjectDependency(Node node) {
         super(node);
@@ -49,6 +51,14 @@ public class ProjectDependency extends AbstractClasspathEntry {
 
     public void setPublication(File publication) {
         this.publication = publication;
+    }
+
+    public TaskDependency getBuildDependencies() {
+        return buildDependencies;
+    }
+
+    public void setBuildDependencies(TaskDependency buildDependencies) {
+        this.buildDependencies = buildDependencies;
     }
 
     private void assertPathIsValid() {

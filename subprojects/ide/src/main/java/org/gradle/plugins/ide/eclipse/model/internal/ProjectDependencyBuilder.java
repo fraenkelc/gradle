@@ -17,6 +17,7 @@
 package org.gradle.plugins.ide.eclipse.model.internal;
 
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
+import org.gradle.api.tasks.TaskDependency;
 import org.gradle.plugins.ide.eclipse.internal.EclipseProjectMetadata;
 import org.gradle.plugins.ide.eclipse.model.ProjectDependency;
 import org.gradle.plugins.ide.internal.IdeArtifactRegistry;
@@ -49,9 +50,10 @@ public class ProjectDependencyBuilder {
         return out;
     }
 
-    public ProjectDependency build(ProjectComponentIdentifier componentIdentifier, File file) {
+    public ProjectDependency build(ProjectComponentIdentifier componentIdentifier, File file, TaskDependency buildDependencies) {
         ProjectDependency dependency = buildProjectDependency(determineTargetProjectPath(componentIdentifier));
         dependency.setPublication(file);
+        dependency.setBuildDependencies(buildDependencies);
         return dependency;
     }
 }

@@ -32,6 +32,7 @@ import org.gradle.api.internal.artifacts.DefaultModuleVersionIdentifier;
 import org.gradle.api.internal.model.NamedObjectInstantiator;
 import org.gradle.api.internal.project.ProjectStateRegistry;
 import org.gradle.api.tasks.SourceSet;
+import org.gradle.internal.component.model.ComponentArtifactMetadata;
 import org.gradle.plugins.ide.eclipse.internal.EclipsePluginConstants;
 import org.gradle.plugins.ide.eclipse.model.AbstractClasspathEntry;
 import org.gradle.plugins.ide.eclipse.model.AbstractLibrary;
@@ -109,7 +110,8 @@ public class EclipseDependenciesCreator {
             if (!RUNTIME_JARS_USAGE.equals(usage)) {
                 return;
             }
-            projects.add(projectDependencyBuilder.build(componentIdentifier, artifact.getFile()));
+            ComponentArtifactMetadata artifactId = (ComponentArtifactMetadata) artifact.getId();
+            projects.add(projectDependencyBuilder.build(componentIdentifier, artifact.getFile(), artifactId.getBuildDependencies()));
         }
 
         @Override
