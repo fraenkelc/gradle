@@ -17,13 +17,20 @@
 package org.gradle.plugins.ide.internal.tooling;
 
 import org.gradle.StartParameter;
+import org.gradle.api.Action;
 import org.gradle.api.NonNullApi;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.ArtifactView;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
-import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
+import org.gradle.api.attributes.AttributeContainer;
+import org.gradle.api.attributes.Usage;
+import org.gradle.api.internal.artifacts.DefaultProjectComponentIdentifier;
+import org.gradle.api.internal.model.NamedObjectInstantiator;
+import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.internal.project.ProjectState;
+import org.gradle.api.internal.project.ProjectStateRegistry;
 import org.gradle.api.specs.Spec;
 import org.gradle.api.tasks.TaskDependency;
 import org.gradle.plugins.ide.eclipse.EclipsePlugin;
@@ -39,8 +46,11 @@ import java.util.stream.Collectors;
 
 @NonNullApi
 public class RunBuildDependenciesTaskBuilder implements ParameterizedToolingModelBuilder<EclipseRuntime> {
-    private ArrayList<TaskDependency> buildDependencies = new ArrayList<>();
-    private Set<String> closedProjectPaths = new HashSet<>();
+    private final ProjectStateRegistry projectRegistry;
+
+    public RunBuildDependenciesTaskBuilder(ProjectStateRegistry projectRegistry) {
+        this.projectRegistry = projectRegistry;
+    }
 
     @Override
     public Class<EclipseRuntime> getParameterType() {
@@ -49,12 +59,11 @@ public class RunBuildDependenciesTaskBuilder implements ParameterizedToolingMode
 
     @Override
     public Object buildAll(String modelName, EclipseRuntime eclipseRuntime, Project project) {
-        Set<String> closedProjectNames = eclipseRuntime.getWorkspace().getProjects().stream().filter(p -> !p.isOpen()).map(p -> p.getName()).collect(Collectors.toSet());
+        Set<String> closedProjectPaths = gatherClosedProjectPaths(eclipseRuntime);
+        Set<TaskDependency> buildDependencies = gatherBuildDependenciesForClosedProjects(closedProjectPaths);
 
-        gatherClosedProjectPaths(closedProjectNames, project);
-        Project rootProject = project.getRootProject();
-        populate(rootProject);
-        if (!closedProjectPaths.isEmpty()) {
+        if (!buildDependencies.isEmpty()) {
+            Project rootProject = project.getRootProject();
             StartParameter startParameter = project.getGradle().getStartParameter();
             List<String> taskPaths = new ArrayList<>(startParameter.getTaskNames());
             String placeHolderTaskName = placeHolderTaskName(rootProject, "eclipseClosedProjectBuildDependencies");
@@ -66,34 +75,48 @@ public class RunBuildDependenciesTaskBuilder implements ParameterizedToolingMode
         return new Object();
     }
 
-    private void gatherClosedProjectPaths(Set<String> closedProjectNames, Project project) {
-        project.getPluginManager().apply(EclipsePlugin.class);
-        EclipseModel eclipseModel = project.getExtensions().getByType(EclipseModel.class);
-        String projectName = eclipseModel.getProject().getName();
-        if (closedProjectNames.contains(projectName)) {
-            closedProjectPaths.add(project.getPath());
+    private Set<TaskDependency> gatherBuildDependenciesForClosedProjects(Set<String> closedProjectPaths) {
+        Set<TaskDependency> buildDependencies = new HashSet<>();
+        for (ProjectState state : projectRegistry.getAllProjects()) {
+            ProjectInternal project = state.getOwner().getLoadedSettings().getGradle().getRootProject().project(state.getComponentIdentifier().getProjectPath());
+            EclipseModel model = project.getExtensions().getByType(EclipseModel.class);
+            // TODO: do we need to handle minusConfigurations too?
+            for (Configuration configuration : model.getClasspath().getPlusConfigurations()) {
+                ArtifactView artifactView = configuration.getIncoming().artifactView(vc -> {
+                    vc.componentFilter(new Spec<ComponentIdentifier>() {
+                        @Override
+                        public boolean isSatisfiedBy(ComponentIdentifier element) {
+                            return element instanceof DefaultProjectComponentIdentifier && closedProjectPaths.contains(((DefaultProjectComponentIdentifier) element).getIdentityPath().getPath());
+                        }
+                    });
+                    vc.attributes(new Action<AttributeContainer>() {
+                        @Override
+                        public void execute(AttributeContainer attrs) {
+                            attrs.attribute(Usage.USAGE_ATTRIBUTE, NamedObjectInstantiator.INSTANCE.named(Usage.class, Usage.JAVA_RUNTIME_JARS));
+                        }
+                    });
+                    vc.setLenient(true);
+                });
+                if (!artifactView.getFiles().isEmpty()) {
+                    buildDependencies.add(artifactView.getFiles().getBuildDependencies());
+                }
+            }
         }
-        project.getSubprojects().forEach(p -> gatherClosedProjectPaths(closedProjectNames, p));
+        return buildDependencies;
     }
 
-    private void populate(Project project) {
-
-        for (Configuration configuration : project.getExtensions().getByType(EclipseModel.class).getClasspath().getPlusConfigurations()) {
-            ArtifactView artifactView = configuration.getIncoming().artifactView(vc -> {
-                vc.componentFilter(new Spec<ComponentIdentifier>() {
-                    @Override
-                    public boolean isSatisfiedBy(ComponentIdentifier element) {
-                        return element instanceof ProjectComponentIdentifier && closedProjectPaths.contains(((ProjectComponentIdentifier) element).getProjectPath());
-                    }
-                });
-            });
-            buildDependencies.add(artifactView.getFiles().getBuildDependencies());
+    private Set<String> gatherClosedProjectPaths(EclipseRuntime eclipseRuntime) {
+        Set<String> closedProjectNames = eclipseRuntime.getWorkspace().getProjects().stream().filter(p -> !p.isOpen()).map(p -> p.getName()).collect(Collectors.toSet());
+        Set<String> closedProjectPaths = new HashSet<>();
+        for (ProjectState state : projectRegistry.getAllProjects()) {
+            ProjectInternal project = state.getOwner().getLoadedSettings().getGradle().getRootProject().project(state.getComponentIdentifier().getProjectPath());
+            project.getPluginManager().apply(EclipsePlugin.class);
+            EclipseModel model = project.getExtensions().getByType(EclipseModel.class);
+            if (closedProjectNames.contains(model.getProject().getName())) {
+                closedProjectPaths.add(project.getIdentityPath().getPath());
+            }
         }
-
-        for (Project childProject : project.getChildProjects().values()) {
-            populate(childProject);
-        }
-
+        return closedProjectPaths;
     }
 
     @Override

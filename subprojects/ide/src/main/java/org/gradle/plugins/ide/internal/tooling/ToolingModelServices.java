@@ -44,14 +44,15 @@ public class ToolingModelServices extends AbstractPluginServiceRegistry {
             final ProjectTaskLister taskLister,
             final ProjectPublicationRegistry projectPublicationRegistry,
             final FileCollectionFactory fileCollectionFactory,
-            final ServiceRegistry services) {
+            final ServiceRegistry services,
+            final ProjectStateRegistry projectRegistry) {
 
             return new BuildScopeToolingModelBuilderRegistryAction() {
                 @Override
                 public void execute(ToolingModelBuilderRegistry registry) {
                     GradleProjectBuilder gradleProjectBuilder = new GradleProjectBuilder();
                     IdeaModelBuilder ideaModelBuilder = new IdeaModelBuilder(gradleProjectBuilder, services);
-                    registry.register(new RunBuildDependenciesTaskBuilder());
+                    registry.register(new RunBuildDependenciesTaskBuilder(projectRegistry));
                     registry.register(new RunEclipseTasksBuilder());
                     registry.register(new EclipseModelBuilder(gradleProjectBuilder, services));
                     registry.register(ideaModelBuilder);

@@ -17,8 +17,11 @@
 package org.gradle.plugins.ide.internal.tooling;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import org.apache.commons.lang.StringUtils;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
@@ -26,19 +29,23 @@ import org.gradle.api.Task;
 import org.gradle.api.artifacts.ArtifactView;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
-import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.attributes.AttributeContainer;
 import org.gradle.api.attributes.Usage;
 import org.gradle.api.initialization.IncludedBuild;
+import org.gradle.api.internal.artifacts.DefaultProjectComponentIdentifier;
 import org.gradle.api.internal.model.NamedObjectInstantiator;
+import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.internal.project.ProjectState;
 import org.gradle.api.internal.project.ProjectStateRegistry;
 import org.gradle.api.invocation.Gradle;
 import org.gradle.api.specs.Spec;
+import org.gradle.api.tasks.SourceSet;
 import org.gradle.internal.build.IncludedBuildState;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.internal.xml.XmlTransformer;
 import org.gradle.plugins.ide.api.XmlFileContentMerger;
 import org.gradle.plugins.ide.eclipse.EclipsePlugin;
+import org.gradle.plugins.ide.eclipse.internal.EclipsePluginConstants;
 import org.gradle.plugins.ide.eclipse.model.AbstractClasspathEntry;
 import org.gradle.plugins.ide.eclipse.model.AbstractLibrary;
 import org.gradle.plugins.ide.eclipse.model.AccessRule;
@@ -79,18 +86,19 @@ import org.gradle.util.GUtil;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<EclipseRuntime> {
     private final GradleProjectBuilder gradleProjectBuilder;
     private final EclipseModelAwareUniqueProjectNameProvider uniqueProjectNameProvider;
+    private final ProjectStateRegistry projectRegistry;
 
     private boolean projectDependenciesOnly;
     private DefaultEclipseProject result;
@@ -100,11 +108,13 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
     private Project currentProject;
     private EclipseRuntime eclipseRuntime;
     private Set<String> closedProjectNames = Collections.emptySet();
+    private Map<String, String> closedProjectPaths = Collections.emptyMap();
 
     @VisibleForTesting
     public EclipseModelBuilder(GradleProjectBuilder gradleProjectBuilder, ServiceRegistry services, EclipseModelAwareUniqueProjectNameProvider uniqueProjectNameProvider) {
         this.gradleProjectBuilder = gradleProjectBuilder;
         this.uniqueProjectNameProvider = uniqueProjectNameProvider;
+        this.projectRegistry = services.get(ProjectStateRegistry.class);
     }
 
     public EclipseModelBuilder(GradleProjectBuilder gradleProjectBuilder, ServiceRegistry services) {
@@ -125,7 +135,6 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
     @Override
     public Object buildAll(String modelName, EclipseRuntime eclipseRuntime, Project project) {
         this.eclipseRuntime = eclipseRuntime;
-        closedProjectNames = eclipseRuntime.getWorkspace().getProjects().stream().filter(p -> !p.isOpen()).map(p -> p.getName()).collect(Collectors.toSet());
         return buildAll(modelName, project);
     }
 
@@ -140,6 +149,10 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
         rootGradleProject = gradleProjectBuilder.buildAll(project);
         tasksFactory.collectTasks(root);
         applyEclipsePlugin(root);
+        if (eclipseRuntime != null) {
+            closedProjectNames = eclipseRuntime.getWorkspace().getProjects().stream().filter(p -> !p.isOpen()).map(p -> p.getName()).collect(Collectors.toSet());
+            closedProjectPaths = gatherClosedProjectPaths(closedProjectNames);
+        }
         deduplicateProjectNames(root);
         buildHierarchy(root);
         populate(root);
@@ -279,20 +292,34 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
         }
     }
 
+    private Map<String, String> gatherClosedProjectPaths(Set<String> closedProjectNames) {
+        Map<String, String> closedProjectPaths = new HashMap<>();
+        for (ProjectState state : projectRegistry.getAllProjects()) {
+            ProjectInternal project = state.getOwner().getLoadedSettings().getGradle().getRootProject().project(state.getComponentIdentifier().getProjectPath());
+            EclipseModel model = project.getExtensions().getByType(EclipseModel.class);
+            if (closedProjectNames.contains(model.getProject().getName())) {
+                closedProjectPaths.put(model.getProject().getName(), project.getIdentityPath().getPath());
+            }
+        }
+        return closedProjectPaths;
+
+    }
+
     private List<DefaultEclipseExternalDependency> createSubstituteDependencies(Project project, ProjectDependency projectDependency) {
         List<DefaultEclipseExternalDependency> dependencies = new ArrayList<>();
-        Optional<String> otherProjectName = eclipseProjects.stream()
-            .filter(ep -> ep.getName().equals(StringUtils.removeStart(projectDependency.getPath(), "/")))
-            .map(ep -> ep.getGradleProject().getPath()).findFirst();
-        if (otherProjectName.isPresent()) {
+
+        String otherProjectName = closedProjectPaths.get(StringUtils.removeStart(projectDependency.getPath(), "/"));
+        if (otherProjectName != null) {
             // we will get duplicate dependencies from the different configurations. We use this map to deduplicate them by their respective file.
             Map<File, DefaultEclipseExternalDependency> dependencyMap = new HashMap<>();
-            for (Configuration configuration : project.getExtensions().getByType(EclipseModel.class).getClasspath().getPlusConfigurations()) {
+            // TODO: do we need to handle minusConfigurations here?
+            EclipseClasspath classpath = project.getExtensions().getByType(EclipseModel.class).getClasspath();
+            for (Configuration configuration : classpath.getPlusConfigurations()) {
                 ArtifactView artifactView = configuration.getIncoming().artifactView(vc -> {
                     vc.componentFilter(new Spec<ComponentIdentifier>() {
                         @Override
                         public boolean isSatisfiedBy(ComponentIdentifier element) {
-                            return element instanceof ProjectComponentIdentifier && ((ProjectComponentIdentifier) element).getProjectPath().equals(otherProjectName.get());
+                            return element instanceof DefaultProjectComponentIdentifier && ((DefaultProjectComponentIdentifier) element).getIdentityPath().getPath().equals(otherProjectName);
                         }
                     });
                     vc.attributes(new Action<AttributeContainer>() {
@@ -302,11 +329,40 @@ public class EclipseModelBuilder implements ParameterizedToolingModelBuilder<Ecl
                             attrs.attribute(Usage.USAGE_ATTRIBUTE, NamedObjectInstantiator.INSTANCE.named(Usage.class, Usage.JAVA_RUNTIME_JARS));
                         }
                     });
+                    vc.lenient(true);
                 });
 
+                Multimap<File, String> sourceSetUsage = LinkedHashMultimap.create();
+                for (SourceSet sourceSet : classpath.getSourceSets()) {
+                    Configuration classpathConfiguration = project.getConfigurations().getByName(sourceSet.getRuntimeClasspathConfigurationName());
+                    ArtifactView innerView = classpathConfiguration.getIncoming().artifactView(vc -> {
+                        vc.componentFilter(new Spec<ComponentIdentifier>() {
+                            @Override
+                            public boolean isSatisfiedBy(ComponentIdentifier element) {
+                                return artifactView.getArtifacts().getArtifacts().stream().anyMatch(ra -> element.equals(ra.getId().getComponentIdentifier()));
+                            }
+                        });
+                        vc.attributes(new Action<AttributeContainer>() {
+                            @Override
+                            public void execute(AttributeContainer attrs) {
+                                // filter out non jar variants
+                                attrs.attribute(Usage.USAGE_ATTRIBUTE, NamedObjectInstantiator.INSTANCE.named(Usage.class, Usage.JAVA_RUNTIME_JARS));
+                            }
+                        });
+                        vc.lenient(true);
+                    });
+                    for (File file : innerView.getFiles().getFiles()) {
+                        sourceSetUsage.put(file, sourceSet.getName().replace(",", ""));
+                    }
+                }
+
                 for (File file : artifactView.getFiles().getFiles()) {
-                    // TODO: sourceset attributes are missing, see org.gradle.plugins.ide.eclipse.model.internal.EclipseDependenciesCreator.EclipseDependenciesVisitor.createLibraryEntry
-                    dependencyMap.put(file, new DefaultEclipseExternalDependency(file, null, null, null, projectDependency.isExported(), createAttributes(projectDependency), createAccessRules(projectDependency)));
+                    List<DefaultClasspathAttribute> attributes = createAttributes(projectDependency);
+                    Collection<String> includedInSourceSets = sourceSetUsage.get(file);
+                    if (includedInSourceSets != null) {
+                        attributes.add(new DefaultClasspathAttribute(EclipsePluginConstants.GRADLE_USED_BY_SCOPE_ATTRIBUTE_NAME, Joiner.on(',').join(includedInSourceSets)));
+                    }
+                    dependencyMap.put(file, new DefaultEclipseExternalDependency(file, null, null, null, projectDependency.isExported(), attributes, createAccessRules(projectDependency)));
                 }
             }
             dependencies.addAll(dependencyMap.values());

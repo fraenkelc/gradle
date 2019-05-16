@@ -20,11 +20,14 @@ import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.integtests.tooling.fixture.ToolingApiVersion
 import org.gradle.integtests.tooling.r54.IntermediateResultHandlerCollector
+import org.gradle.plugins.ide.eclipse.internal.EclipsePluginConstants
 import org.gradle.tooling.model.eclipse.EclipseProject
 import org.gradle.tooling.model.eclipse.EclipseWorkspace
 import org.gradle.tooling.model.eclipse.EclipseWorkspaceProject
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
+
+import java.util.regex.Pattern
 
 @TargetGradleVersion(">=5.5")
 @ToolingApiVersion(">=5.5")
@@ -33,10 +36,10 @@ class RunEclipseClosedProjectTasksCrossVersionSpec extends ToolingApiSpecificati
     @Rule
     TemporaryFolder externalProjectFolder = new TemporaryFolder()
 
-    def setup() {
-        ["child1", "child2"].each { file("$it/src/main/java").mkdirs() }
-
-        buildFile << """
+    def "will substitute and run build dependencies for closed projects on startup"() {
+        setup:
+        multiProjectBuildInRootFolder("parent", ["child1", "child2"]) {
+            buildFile << """
             subprojects {
                 apply plugin: 'java-library'
             }
@@ -58,11 +61,7 @@ class RunEclipseClosedProjectTasksCrossVersionSpec extends ToolingApiSpecificati
                 }
             }
         """
-        settingsFile << "include ':child1', ':child2'"
-    }
-
-    def "will substitute and run build dependencies for closed projects on startup"() {
-        setup:
+        }
 
         def projectsLoadedHandler = new IntermediateResultHandlerCollector<Void>()
         def buildFinishedHandler = new IntermediateResultHandlerCollector<EclipseProject>()
@@ -81,18 +80,81 @@ class RunEclipseClosedProjectTasksCrossVersionSpec extends ToolingApiSpecificati
         then:
         def child2 = buildFinishedHandler.result.children.find { it.name == "child2" }
         child2.projectDependencies.isEmpty()
-        child2.classpath.collect { it.file.name }.sort() == ['child1-tests.jar', 'child1.jar']
+        child2.classpath.collect { it.file.name }.sort() == ['child1-1.0-tests.jar', 'child1-1.0.jar']
+        child2.classpath.find { it.file.name == 'child1-1.0.jar' }.classpathAttributes.find { it.name == EclipsePluginConstants.GRADLE_USED_BY_SCOPE_ATTRIBUTE_NAME }.value == "main,test"
+        child2.classpath.find { it.file.name == 'child1-1.0-tests.jar' }.classpathAttributes.find { it.name == EclipsePluginConstants.GRADLE_USED_BY_SCOPE_ATTRIBUTE_NAME }.value == "test"
         taskExecuted(out, ":eclipseClosedProjectBuildDependencies")
         taskExecuted(out, ":child1:testJar")
         taskExecuted(out, ":child1:jar")
     }
 
-    private def taskExecuted(ByteArrayOutputStream out, String taskPath) {
-        out.toString().contains("> Task $taskPath")
+    def "build task is not added if no projects are closed"() {
+        setup:
+        singleProjectBuildInRootFolder("root")
+        def projectsLoadedHandler = new IntermediateResultHandlerCollector<Void>()
+        def buildFinishedHandler = new IntermediateResultHandlerCollector<EclipseProject>()
+        def out = new ByteArrayOutputStream()
+        def workspace = eclipseWorkspace([gradleProject("project")])
+
+        when:
+        withConnection { connection ->
+            connection.action().projectsLoaded(new TellGradleToRunBuildDependencyTask(workspace), projectsLoadedHandler)
+                .buildFinished(new LoadEclipseModel(workspace), buildFinishedHandler)
+                .build()
+                .setStandardOutput(out)
+                .forTasks()
+                .run()
+        }
+
+        then:
+        !taskExecuted(out, ":eclipseClosedProjectBuildDependencies")
+
+
+    }
+
+    def "task name is deduplicated"() {
+        setup:
+        multiProjectBuildInRootFolder("root", ["child1", "child2"]) {
+            buildFile << """
+            subprojects {
+                apply plugin: 'java-library'
+            }
+            task eclipseClosedProjectBuildDependencies (){}
+            project(":child2") {
+                dependencies {
+                    implementation project(":child1");
+                }
+            }
+        """
+        }
+
+        def projectsLoadedHandler = new IntermediateResultHandlerCollector<Void>()
+        def buildFinishedHandler = new IntermediateResultHandlerCollector<EclipseProject>()
+        def out = new ByteArrayOutputStream()
+        def workspace = eclipseWorkspace([gradleProject("child1", false), gradleProject("child2")])
+        when:
+        withConnection { connection ->
+            connection.action().projectsLoaded(new TellGradleToRunBuildDependencyTask(workspace), projectsLoadedHandler)
+                .buildFinished(new LoadEclipseModel(workspace), buildFinishedHandler)
+                .build()
+                .setStandardOutput(out)
+                .forTasks()
+                .run()
+        }
+
+        then:
+        !taskExecuted(out, ":eclipseClosedProjectBuildDependencies")
+        taskExecuted(out, ":eclipseClosedProjectBuildDependencies_")
+
+    }
+
+
+    private static def taskExecuted(ByteArrayOutputStream out, String taskPath) {
+        out.toString().find("(?m)> Task ${Pattern.quote(taskPath)}\$") != null
     }
 
     EclipseWorkspace eclipseWorkspace(List<EclipseWorkspaceProject> projects) {
-        new DefaultEclipseWorkspace(externalProjectFolder.newFolder("workspace"), projects)
+        new DefaultEclipseWorkspace(temporaryFolder.file("workspace"), projects)
     }
 
     EclipseWorkspaceProject gradleProject(String name, boolean isOpen = true) {
@@ -104,7 +166,7 @@ class RunEclipseClosedProjectTasksCrossVersionSpec extends ToolingApiSpecificati
     }
 
     EclipseWorkspaceProject externalProject(String name) {
-        new DefaultEclipseWorkspaceProject(name, externalProjectFolder.newFolder(name))
+        new DefaultEclipseWorkspaceProject(name, temporaryFolder.file("external/$name"))
     }
 
 

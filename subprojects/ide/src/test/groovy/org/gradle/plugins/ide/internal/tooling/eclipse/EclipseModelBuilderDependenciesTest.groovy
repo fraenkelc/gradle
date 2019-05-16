@@ -20,6 +20,7 @@ package org.gradle.plugins.ide.internal.tooling.eclipse
 import org.gradle.api.Project
 import org.gradle.api.internal.artifacts.ivyservice.projectmodule.LocalComponentRegistry
 import org.gradle.api.internal.composite.CompositeBuildContext
+import org.gradle.api.internal.project.ProjectStateRegistry
 import org.gradle.api.plugins.JavaPlugin
 import org.gradle.internal.service.DefaultServiceRegistry
 import org.gradle.jvm.tasks.Jar
@@ -101,21 +102,6 @@ class EclipseModelBuilderDependenciesTest extends AbstractProjectBuilderSpec {
         eclipseChild2.classpath.collect { it.file.getName() } == ["test-1.0.jar"]
     }
 
-    def "project dependency is replaced when project is closed"() {
-        setup:
-        def eclipseRuntime = eclipseRuntime([gradleProject("child1", false), gradleProject("child2")])
-        def modelBuilder = createEclipseModelBuilder()
-
-        when:
-        def eclipseModel = modelBuilder.buildAll("org.gradle.tooling.model.eclipse.EclipseProject", eclipseRuntime, project)
-
-        then:
-        DefaultEclipseProject eclipseChild2 = eclipseModel.children.find { it.name == 'child2' }
-        eclipseChild2.projectDependencies.collect { it.path } == []
-        // jars that replace the project dependencies + the transitive dependency from :a
-        eclipseChild2.classpath.collect { it.file.getName() }.sort() == ['child1-tests.jar', 'child1.jar', "test-1.0.jar"]
-    }
-
     private def createEclipseModelBuilder() {
         def gradleProjectBuilder = new GradleProjectBuilder()
         def serviceRegistry = new DefaultServiceRegistry()
@@ -124,6 +110,7 @@ class EclipseModelBuilderDependenciesTest extends AbstractProjectBuilderSpec {
         }
         serviceRegistry.add(LocalComponentRegistry, Stub(LocalComponentRegistry))
         serviceRegistry.add(CompositeBuildContext, Stub(CompositeBuildContext))
+        serviceRegistry.add(ProjectStateRegistry, Stub(ProjectStateRegistry))
         new EclipseModelBuilder(gradleProjectBuilder, serviceRegistry, uniqueProjectNameProvider)
     }
 

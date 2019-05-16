@@ -15,16 +15,29 @@
  */
 package org.gradle.integtests.tooling.r55;
 
+import org.gradle.api.Action;
 import org.gradle.tooling.BuildAction;
 import org.gradle.tooling.BuildController;
 import org.gradle.tooling.model.eclipse.EclipseProject;
+import org.gradle.tooling.model.eclipse.EclipseRuntime;
+import org.gradle.tooling.model.eclipse.EclipseWorkspace;
 import org.gradle.tooling.model.gradle.GradleBuild;
 
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 
-public class LoadCompositeEclipseModels implements BuildAction<Collection<EclipseProject>>, Serializable {
+public class ParameterizedLoadCompositeEclipseModels implements BuildAction<Collection<EclipseProject>>, Serializable {
+
+    private final EclipseWorkspace workspace;
+
+    ParameterizedLoadCompositeEclipseModels() {
+        this(null);
+    }
+
+    ParameterizedLoadCompositeEclipseModels(EclipseWorkspace workspace) {
+        this.workspace = workspace;
+    }
 
     @Override
     public Collection<EclipseProject> execute(BuildController controller) {
@@ -34,9 +47,27 @@ public class LoadCompositeEclipseModels implements BuildAction<Collection<Eclips
     }
 
     private void collectRootModels(BuildController controller, GradleBuild build, Collection<EclipseProject> models) {
-        models.add(controller.getModel(build.getRootProject(), EclipseProject.class));
+        if (workspace != null) {
+            models.add(controller.getModel(build.getRootProject(), EclipseProject.class, EclipseRuntime.class, new EclipseRuntimeAction(workspace)));
+        } else {
+            models.add(controller.getModel(build.getRootProject(), EclipseProject.class));
+        }
         for (GradleBuild includedBuild : build.getIncludedBuilds()) {
             collectRootModels(controller, includedBuild, models);
+        }
+    }
+
+    private static class EclipseRuntimeAction implements Action<EclipseRuntime>, Serializable {
+        private final EclipseWorkspace workspace;
+
+        public EclipseRuntimeAction(EclipseWorkspace workspace) {
+
+            this.workspace = workspace;
+        }
+
+        @Override
+        public void execute(EclipseRuntime eclipseRuntime) {
+            eclipseRuntime.setWorkspace(workspace);
         }
     }
 }
